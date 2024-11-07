@@ -12,29 +12,14 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       
-      - name: Check domains
-        run: python Checking.py domains.csv
+      - name: Install dependencies
+        run: pip install requests
       
-      - name: Create Issue for Changes
-        if: contains(steps.check.outputs.stdout, '::warning::')
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const output = process.env.CHECK_OUTPUT;
-            const changes = output
-              .split('\n')
-              .filter(line => line.includes('::warning::'))
-              .map(line => line.replace('::warning::', ''));
-            
-            if (changes.length > 0) {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: `Domain Status Changes - ${new Date().toISOString().split('T')[0]}`,
-                body: changes.join('\n'),
-                labels: ['status-change']
-              });
-            }
+      - name: Check domains
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python Checking.py domains.csv
       
       - name: Commit updated status
         run: |
