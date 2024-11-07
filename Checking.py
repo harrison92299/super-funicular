@@ -1,9 +1,15 @@
 import socket
 import csv
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 import time
 import logging
+import requests
+import os
+
+# Get Telegram credentials from environment variables
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
 
 def setup_logging():
     """Setup logging configuration"""
@@ -15,6 +21,20 @@ def setup_logging():
             logging.FileHandler('domain_checker.log')
         ]
     )
+
+def send_telegram_message(message):
+    """Send message to Telegram"""
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        data = {
+            "chat_id": TELEGRAM_CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": False
+        }
+        requests.post(url, data=data)
+    except Exception as e:
+        logging.error(f"Failed to send Telegram message: {e}")
 
 def check_domain_status(domain):
     """Check if domain resolves to an IP"""
@@ -62,30 +82,30 @@ def process_domains(input_file):
                 new_status = check_domain_status(domain)
                 check_time = current_time.strftime('%Y-%m-%d %H:%M:%S')
                 
-                # Always log initial status
-                old_status = row['status'] if row['status'] else 'unchecked'
-                if old_status != new_status:
-                    changes.append({
-                        'domain': domain,
-                        'old_status': old_status,
-                        'new_status': new_status,
-                        'time': check_time
-                    })
-                    print(f"::warning::Domain {domain} status: {new_status}")
-                    logging.info(f"Domain {domain} status: {new_status}")
+                # If domain is registered, send notification
+                if new_status == "Registered":
+                    message = (
+                        f"🚨 <b>Registered Domain Found</b> 🚨\n"
+                        f"Domain: {domain}\n"
+                        f"URL: https://{domain}\n"
+                        f"Time: {check_time}\n\n"
+                        f"Check domain: https://whois.domaintools.com/{domain}"
+                    )
+                    send_telegram_message(message)
+                    print(f"::warning::REGISTERED DOMAIN FOUND - {domain}")
                 
                 # Update row with new status and check time
                 row['status'] = new_status
                 row['last_checked'] = check_time
                 
                 domains_checked += 1
+                logging.info(f"Domain {domain} status: {new_status}")
                 
                 if domains_checked % 100 == 0:
                     logging.info(f"Progress: Checked {domains_checked} domains")
                 
                 time.sleep(1)  # Rate limiting
                 
-                # Stop after checking reasonable number of domains per run
                 if domains_checked >= 7150:  # Adjusted to handle 200,000 domains weekly
                     break
                     
@@ -99,11 +119,8 @@ def process_domains(input_file):
             writer.writeheader()
             writer.writerows(domains_data)
         
-        # Log summary
         logging.info(f"\nRun Summary:")
         logging.info(f"Total domains checked: {domains_checked}")
-        logging.info(f"Status changes detected: {len(changes)}")
-        logging.info(f"Completion time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         
         return changes
         
@@ -111,45 +128,16 @@ def process_domains(input_file):
         logging.error(f"Critical error in process_domains: {str(e)}")
         raise
 
-def generate_summary(changes):
-    """Generate a summary of changes"""
-    if not changes:
-        return "No domains checked in this run."
-    
-    registered_count = sum(1 for change in changes if change['new_status'] == 'Registered')
-    not_registered_count = sum(1 for change in changes if change['new_status'] == 'Not Registered')
-    
-    summary = f"Domain Check Summary:\n"
-    summary += f"Total domains checked: {len(changes)}\n"
-    summary += f"Registered domains: {registered_count}\n"
-    summary += f"Not Registered domains: {not_registered_count}\n\n"
-    summary += "Registered Domains:\n"
-    
-    # List registered domains
-    for change in changes:
-        if change['new_status'] == 'Registered':
-            summary += f"- {change['domain']}\n"
-    
-    return summary
-
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python Checking.py domains.csv")
         sys.exit(1)
     
     input_file = sys.argv[1]
-    
-    # Setup logging
     setup_logging()
     
     try:
-        # Process domains and get changes
-        changes = process_domains(input_file)
-        
-        # Generate and log summary
-        summary = generate_summary(changes)
-        logging.info("\nCheck Summary:\n" + summary)
-        
+        process_domains(input_file)
     except Exception as e:
         logging.error(f"Script failed: {str(e)}")
         sys.exit(1)
