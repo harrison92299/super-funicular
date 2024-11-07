@@ -12,17 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       
-      - name: Download previous results
-        continue-on-error: true
-        run: |
-          mkdir -p .data
-          if [ -f status.csv ]; then
-            cp status.csv .data/
-          fi
-      
       - name: Check domains
-        run: |
-          python Checking.py domains.csv status.csv
+        run: python Checking.py domains.csv
       
       - name: Create Issue for Changes
         if: contains(steps.check.outputs.stdout, '::warning::')
@@ -49,12 +40,6 @@ jobs:
         run: |
           git config --global user.name 'GitHub Action'
           git config --global user.email 'action@github.com'
-          git add status.csv
-          git commit -m "Update domain status" || exit 0
+          git add domains.csv
+          git commit -m "Update domain statuses" || exit 0
           git push
-
-      - name: Upload Results
-        uses: actions/upload-artifact@v2
-        with:
-          name: domain-check-results
-          path: status.csv
