@@ -1,7 +1,8 @@
 import socket
 import csv
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
+import time
 
 def check_domain_status(domain):
     """Check if domain resolves to an IP"""
@@ -11,68 +12,80 @@ def check_domain_status(domain):
     except socket.gaierror:
         return "available"
 
-def process_batch(input_file, output_file, status_file):
-    """Process a batch of domains and track changes"""
-    # Read previous status if exists
-    previous_status = {}
-    try:
-        with open(status_file, 'r') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                previous_status[row['Domain']] = row['Status']
-    except FileNotFoundError:
-        previous_status = {}
-
+def process_domains(input_file, output_file):
+    """Process domains that are due for checking"""
+    current_time = datetime.now()
     changes = []
-    current_status = {}
-
+    domains_checked = 0
+    
+    # Read existing status file if it exists
+    try:
+        with open(output_file, 'r') as f:
+            reader = csv.DictReader(f)
+            status_data = list(reader)
+            status_dict = {row['Domain']: row for row in status_data}
+    except FileNotFoundError:
+        status_dict = {}
+    
     # Process domains
-    with open(input_file, 'r') as f, open(output_file, 'w') as out:
-        reader = csv.reader(f)
-        writer = csv.writer(out)
-        writer.writerow(['Domain', 'Status', 'Check_Time'])
-        
-        next(reader)  # Skip header if exists
+    updated_status = []
+    with open(input_file, 'r') as f:
+        reader = csv.DictReader(f)
         for row in reader:
-            domain = row[0].strip()
-            status = check_domain_status(domain)
-            check_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            domain = row['Domain']
             
-            writer.writerow([domain, status, check_time])
-            current_status[domain] = status
+            # Check if domain exists in status file and when it was last checked
+            if domain in status_dict:
+                last_check = datetime.strptime(status_dict[domain]['Last_Checked'], '%Y-%m-%d %H:%M:%S')
+                if (current_time - last_check).days < 7:  # Skip if checked less than 7 days ago
+                    updated_status.append(status_dict[domain])
+                    continue
+            
+            # Check domain status
+            status = check_domain_status(domain)
+            check_time = current_time.strftime('%Y-%m-%d %H:%M:%S')
             
             # Check for status change
-            if domain in previous_status and previous_status[domain] != status:
+            if domain in status_dict and status_dict[domain]['Status'] != status:
                 changes.append({
                     'domain': domain,
-                    'old_status': previous_status[domain],
+                    'old_status': status_dict[domain]['Status'],
                     'new_status': status,
                     'time': check_time
                 })
-            print(f"{domain}: {status}")
-
-    # Save current status
-    with open(status_file, 'w') as f:
-        writer = csv.writer(f)
-        writer.writerow(['Domain', 'Status'])
-        for domain, status in current_status.items():
-            writer.writerow([domain, status])
-
+                print(f"::warning::Domain {domain} changed from {status_dict[domain]['Status']} to {status}")
+            
+            # Update status
+            updated_status.append({
+                'Domain': domain,
+                'Status': status,
+                'Last_Checked': check_time
+            })
+            
+            domains_checked += 1
+            print(f"Checked {domain}: {status}")
+            
+            time.sleep(1)  # Rate limiting
+            
+            # Stop after checking reasonable number of domains per run
+            if domains_checked >= 1000:  # Adjust this number based on your needs
+                break
+    
+    # Write updated status to file
+    with open(output_file, 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=['Domain', 'Status', 'Last_Checked'])
+        writer.writeheader()
+        writer.writerows(updated_status)
+    
+    print(f"\nProcessed {domains_checked} domains")
     return changes
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("Usage: python Checking.py input_file output_file status_file")
+    if len(sys.argv) != 3:
+        print("Usage: python Checking.py input_file output_file")
         sys.exit(1)
         
     input_file = sys.argv[1]
     output_file = sys.argv[2]
-    status_file = sys.argv[3]
     
-    changes = process_batch(input_file, output_file, status_file)
-    
-    # Print changes for GitHub Actions
-    if changes:
-        print("\nStatus Changes Detected:")
-        for change in changes:
-            print(f"::warning::Domain {change['domain']} changed from {change['old_status']} to {change['new_status']}")
+    process_domains(input_file, output_file)
