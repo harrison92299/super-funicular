@@ -20,9 +20,9 @@ def check_domain_status(domain):
     """Check if domain resolves to an IP"""
     try:
         ip = socket.gethostbyname(domain)
-        return "registered" if ip else "available"
+        return "Registered" if ip else "Not Registered"
     except socket.gaierror:
-        return "available"
+        return "Not Registered"
     except Exception as e:
         logging.error(f"Error checking {domain}: {str(e)}")
         return "error"
@@ -62,8 +62,8 @@ def process_domains(input_file):
                 new_status = check_domain_status(domain)
                 check_time = current_time.strftime('%Y-%m-%d %H:%M:%S')
                 
-                # Check for status change
-                old_status = row['status'] if row['status'] else 'unknown'
+                # Always log initial status
+                old_status = row['status'] if row['status'] else 'unchecked'
                 if old_status != new_status:
                     changes.append({
                         'domain': domain,
@@ -71,8 +71,8 @@ def process_domains(input_file):
                         'new_status': new_status,
                         'time': check_time
                     })
-                    print(f"::warning::Domain {domain} changed from {old_status} to {new_status}")
-                    logging.info(f"Status change detected for {domain}: {old_status} → {new_status}")
+                    print(f"::warning::Domain {domain} status: {new_status}")
+                    logging.info(f"Domain {domain} status: {new_status}")
                 
                 # Update row with new status and check time
                 row['status'] = new_status
@@ -114,14 +114,21 @@ def process_domains(input_file):
 def generate_summary(changes):
     """Generate a summary of changes"""
     if not changes:
-        return "No changes detected in this run."
+        return "No domains checked in this run."
     
-    summary = "Domain Status Changes:\n\n"
+    registered_count = sum(1 for change in changes if change['new_status'] == 'Registered')
+    not_registered_count = sum(1 for change in changes if change['new_status'] == 'Not Registered')
+    
+    summary = f"Domain Check Summary:\n"
+    summary += f"Total domains checked: {len(changes)}\n"
+    summary += f"Registered domains: {registered_count}\n"
+    summary += f"Not Registered domains: {not_registered_count}\n\n"
+    summary += "Registered Domains:\n"
+    
+    # List registered domains
     for change in changes:
-        summary += f"Domain: {change['domain']}\n"
-        summary += f"Status Change: {change['old_status']} → {change['new_status']}\n"
-        summary += f"Time: {change['time']}\n"
-        summary += "-" * 50 + "\n"
+        if change['new_status'] == 'Registered':
+            summary += f"- {change['domain']}\n"
     
     return summary
 
@@ -141,7 +148,7 @@ if __name__ == "__main__":
         
         # Generate and log summary
         summary = generate_summary(changes)
-        logging.info("\nChange Summary:\n" + summary)
+        logging.info("\nCheck Summary:\n" + summary)
         
     except Exception as e:
         logging.error(f"Script failed: {str(e)}")
