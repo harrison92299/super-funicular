@@ -32,7 +32,8 @@ def process_domains(input_file, output_file):
     with open(input_file, 'r') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            domain = row['Domain']
+            # Extract domain from your CSV format
+            domain = f"{row['domain']}.com"  # Assuming domains are in the 'domain' column
             
             # Check if domain exists in status file and when it was last checked
             if domain in status_dict:
