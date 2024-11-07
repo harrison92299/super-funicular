@@ -1,0 +1,55 @@
+name: Domain Status Check
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Run every 6 hours
+  workflow_dispatch:  # Allow manual triggers
+
+jobs:
+  check-domains:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        batch: [1, 2, 3, 4]  # Adjust based on your batch count
+      
+    steps:
+      - uses: actions/checkout@v2
+      
+      - name: Check domains
+        run: |
+          python Checking.py \
+            "domains_batch${{ matrix.batch }}.csv" \
+            "results_batch${{ matrix.batch }}.csv" \
+            "status_batch${{ matrix.batch }}.csv"
+      
+      - name: Create Issue for Changes
+        if: contains(steps.check.outputs.stdout, '::warning::')
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const output = process.env.CHECK_OUTPUT;
+            
+            const changes = output
+              .split('\n')
+              .filter(line => line.includes('::warning::'))
+              .map(line => line.replace('::warning::', ''));
+            
+            if (changes.length > 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `Domain Status Changes - Batch ${process.env.BATCH}`,
+                body: changes.join('\n'),
+                labels: ['status-change']
+              });
+            }
+      
+      - name: Upload Results
+        uses: actions/upload-artifact@v2
+        with:
+          name: batch${{ matrix.batch }}-results
+          path: |
+            results_batch${{ matrix.batch }}.csv
+            status_batch${{ matrix.batch }}.csv
